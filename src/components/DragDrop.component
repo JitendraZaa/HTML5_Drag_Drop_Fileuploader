@@ -1,0 +1,192 @@
+<apex:component >
+         <apex:attribute name="parentId" type="String" description="Parent record where attachment would be attached"/>
+         <apex:attribute name="DragDropHeight" type="String" description="Height in Pixel for Drag and Drop Section"/>  
+    <style>
+        #holder { 
+            border: 2px dashed #ccc; 
+            width: 98%; 
+            height:95%;  
+            background-color:#ccc; 
+            -webkit-border-radius: 8px 8px 8px 8px;
+            border-radius: 8px 8px 8px 8px;
+            text-align: center; 
+            }
+        #holder span, #uploadCompleted span { 
+            position: relative;
+            top: 30%;
+            transform: translateY(-50%);
+            text-shadow: 2px 2px 2px #525252;
+            font-size:3em;
+            color:#A3A3A3; 
+            }  
+        #holder.hover { border: 2px dashed #636363; }
+   
+        #uploadStatus span{  
+            text-shadow: 2px 2px 2px #525252;
+            font-size:1em;
+             }
+        
+        #holder p { margin: 10px; font-size: 14px; }
+        progress { width: 100%;  height:2em;  }  
+        progress:after { content: '%'; }
+        .fail { background: #c00; padding: 2px; color: #fff; }
+        .hidden { display: none;}
+        .dragDropComponentSize{ height:{!DragDropHeight} ; overflow-y:auto; }
+        body{width:98%;font-family: Helvetica,"Helvetica Neue",Arial,sans-serif;}
+    </style>
+
+<article class="dragDropComponentSize" id="dndContainer">
+    <div id="holder" >
+        <span id="holder_txt1"> Drag and Drop file here </span>
+         <span  id="holder_txt2" class="hidden"> Upload </span>
+    </div> 
+    <p id="upload" class="hidden"><label>Drag &amp; drop not supported by your browser, but you can still upload via this input field:<br /><input type="file" /></label></p>
+    <p id="filereader">File API &amp; FileReader API not supported</p>
+    <p id="formdata">XHR2's FormData is not supported</p>
+    <p id="progress">XHR2's upload progress isn't supported</p>
+    <p id="uploadStatus" class="hidden"><span>Upload progress:</span> <progress id="uploadprogress" min="0" max="100" value="0">0</progress></p> 
+</article>
+<script>
+    var holder = document.getElementById('holder');
+    var holder_txt1 = document.getElementById('holder_txt1');
+    var holder_txt2 = document.getElementById('holder_txt2');
+    var uploadStatus = document.getElementById('uploadStatus'); 
+
+    var sfdcHostName =window.location.host.split('.')[1]; 
+
+    tests = {
+      filereader: typeof FileReader != 'undefined',
+      dnd: 'draggable' in document.createElement('span'),
+      formdata: !!window.FormData,
+      progress: "upload" in new XMLHttpRequest
+    }, 
+    support = {
+      filereader: document.getElementById('filereader'),
+      formdata: document.getElementById('formdata'),
+      progress: document.getElementById('progress')
+    }, 
+    progress = document.getElementById('uploadprogress'),
+    fileupload = document.getElementById('upload');
+
+"filereader formdata progress".split(' ').forEach(function (api) {
+  if (tests[api] === false) {
+    support[api].className = 'fail';
+  } else { 
+    support[api].className = 'hidden';
+  }
+});
+ 
+
+function textBeforeDrag(flag){
+    if(flag)
+    {
+        holder_txt1.className = '';
+        holder_txt2.className = 'hidden';
+    }else{
+        holder_txt1.className = 'hidden';
+        holder_txt2.className = '';
+    }
+}
+
+function resetAll()
+{
+    holder.className = holder_txt1.className = '';  
+    holder_txt2.className = uploadStatus.className = 'hidden';
+}
+
+function readfiles(files) { 
+    
+    var formData = tests.formdata ? new FormData() : null;
+      
+      //Not sure why multiple files dropping, so for time being disable multi file functionality
+      if(files.length > 1)
+      {
+          alert('Multi Upload is not supported, please try to upload single file');
+          return;
+      }
+
+    for (var i = 0; i < files.length; i++) {
+        uploadStatus.className = '';  
+        holder.className = 'hidden';
+        // now post a new XHR request
+        if (tests.formdata) {
+          var xhr = new XMLHttpRequest();
+       
+          
+          var sfdcurl = 'https://'+sfdcHostName+'.salesforce.com/services/apexrest/DragAndDrop/v1?FileName='+encodeURIComponent(files[i].name)+'&cType='+encodeURIComponent(files[i].type)+'&parId={!parentId}' ;
+          
+          
+          xhr.open('POST','/services/proxy' );
+          
+          //xhr.setRequestHeader("Content-type",'multipart/form-data');
+          //xhr.setRequestHeader("Content-type",''); 
+          xhr.setRequestHeader("Authorization","Bearer {!$Api.Session_ID}");
+          xhr.setRequestHeader('SalesforceProxy-Endpoint', sfdcurl);
+          xhr.setRequestHeader('X-User-Agent', 'DragAndDropAPI v1.0');
+           
+          xhr.onload = function() { 
+            progress.value = progress.innerHTML = 100; 
+            //resetAll();
+          };
+    
+          if (tests.progress) {
+            xhr.upload.onprogress = function (event) {
+              if (event.lengthComputable) {
+                var complete = (event.loaded / event.total * 100 | 0);
+                progress.value = progress.innerHTML = complete;
+              }
+            }
+          }
+          
+          xhr.onreadystatechange=function()
+            {
+                if (xhr.readyState==4 && xhr.status != 200)
+                {
+                    if(xhr.responseText)
+                        alert(xhr.responseText);
+                    else
+                        alert('Some error occurred while uploading file');
+                        
+                     console.log(xhr);
+                }
+            }
+    
+          xhr.send(files[i]);
+        } 
+    } 
+    
+    /*
+    if("{!isRefresh}".toUpperCase()  == "TRUE")
+    {
+        location.reload();
+    }
+    */
+}
+
+if (tests.dnd) { 
+  holder.ondragover = function () { 
+        this.className = 'hover'; 
+        textBeforeDrag(false); 
+        return false; 
+      };
+  holder.ondragend = function () { 
+        this.className = ''; 
+        textBeforeDrag(true); 
+        return false; 
+      };
+  holder.ondrop = function (e) {
+        textBeforeDrag(true);
+        this.className = '';
+        
+        e.preventDefault();
+        readfiles(e.dataTransfer.files);
+  }
+} else {
+        fileupload.className = 'hidden';
+        fileupload.querySelector('input').onchange = function () {
+        readfiles(this.files);
+  };
+}
+
+</script>
+</apex:component>
